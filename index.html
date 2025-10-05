@@ -1,41 +1,97 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
-    <title>Spotify Wrapped 2024</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Statify - Your Spotify Analyzer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
 </head>
+<body class="bg-gray-900 text-white antialiased">
 
-<body>
-    <div class="wrapped-container">
-        <div class="wrapped-header">
-            <h1 class="wrapped-title">Spotify Wrapped</h1>
-            <p class="wrapped-subtitle">
-                Get your spotify listening stats at any time of the year!
+    <div id="main-container" class="min-h-screen p-4 sm:p-6 lg:p-8 flex flex-col">
+        
+        <!-- View 1: Login Page -->
+        <div id="login-view" class="flex flex-col items-center justify-center text-center flex-grow">
+            <h1 class="text-5xl md:text-7xl font-black text-green-400 mb-4">Soundex</h1>
+            <p class="text-lg md:text-xl text-gray-300 max-w-2xl mb-8">
+                Unlock the story behind your streams. See your most-played artists, tracks, and albums, and discover new music perfectly tailored to your taste.
             </p>
+            <div class="bg-gray-800 rounded-lg p-6 max-w-md w-full mb-8">
+                <h2 class="text-2xl font-bold mb-4">How it Works</h2>
+                <ol class="text-left space-y-3 text-gray-400">
+                    <li><span class="font-bold text-green-400">Step 1:</span> Click the button below to connect.</li>
+                    <li><span class="font-bold text-green-400">Step 2:</span> Log in to your Spotify account to authorize access.</li>
+                    <li><span class="font-bold text-green-400">Step 3:</span> Instantly see your personalized music stats!</li>
+                </ol>
+                <p class="text-xs text-gray-500 mt-4">Note: We only request read-only access to your top artists and tracks. We do not store any of your data.</p>
+            </div>
+            <button id="login-button" class="bg-green-500 hover:bg-green-600 text-gray-900 font-bold py-4 px-8 rounded-full text-lg transition duration-300 flex items-center space-x-3 transform hover:scale-105">
+                <svg role="img" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.923 17.483c-.202.32-.58.426-.9.223-2.625-1.62-5.922-1.987-9.864-1.09a.834.834 0 01-.952-.82.834.834 0 01.82-.952c4.328-.98 7.99- .55 10.932 1.255a.838.838 0 01.223.901l-.259.483zm1.18-2.81c-.253.398-.716.53-1.114.278-2.92-1.78-7.345-2.308-11.245-1.255a1.042 1.042 0 01-1.162-1.025c.01-1.042 1.025-1.162 1.025-1.162 4.387-.952 9.243-.32 12.55 1.78a1.042 1.042 0 01.278 1.114l-.32 1.25zm.11-3.213C15.22 8.318 8.802 7.99 5.074 9.103a1.25 1.25 0 01-1.38-1.22c-.01-1.25 1.22-1.38 1.22-1.38 4.214-1.255 11.235-.82 15.063 2.025a1.25 1.25 0 01.32 1.637l-1.38 1.49z"></path></svg>
+                <span>Login with Spotify</span>
+            </button>
         </div>
 
-        <div class="insights-preview">
-            <div class="insight-item">
-                <div class="insight-icon">🎧</div>
-                <span>Personalized Listening Breakdown</span>
-            </div>
-            <div class="insight-item">
-                <div class="insight-icon">🌟</div>
-                <span>Top Artists & Genre Exploration</span>
-            </div>
-            <div class="insight-item">
-                <div class="insight-icon">📊</div>
-                <span>Comprehensive Music Statistics</span>
-            </div>
+        <!-- View 2: Dashboard -->
+        <div id="dashboard-view" class="hidden">
+            <header class="flex flex-col sm:flex-row justify-between items-center mb-8">
+                <div class="flex items-center space-x-4 mb-4 sm:mb-0">
+                     <div id="user-profile-pic" class="w-12 h-12 rounded-full bg-gray-700"></div>
+                     <h1 id="user-display-name" class="text-2xl font-bold">Your Dashboard</h1>
+                </div>
+                <div>
+                    <select id="time-range-select" class="bg-gray-800 border border-gray-700 rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-green-500">
+                        <option value="short_term">Last 4 Weeks</option>
+                        <option value="medium_term" selected>Last 6 Months</option>
+                        <option value="long_term">All Time</option>
+                    </select>
+                </div>
+            </header>
+
+            <main class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <!-- Top Artists -->
+                <div class="bg-gray-800 p-6 rounded-lg">
+                    <h2 class="text-2xl font-bold mb-4">Top Artists</h2>
+                    <ul id="top-artists-list" class="space-y-4"></ul>
+                </div>
+                <!-- Top Tracks -->
+                <div class="bg-gray-800 p-6 rounded-lg">
+                    <h2 class="text-2xl font-bold mb-4">Top Tracks</h2>
+                    <ul id="top-tracks-list" class="space-y-4"></ul>
+                </div>
+                <!-- Top Albums -->
+                <div class="bg-gray-800 p-6 rounded-lg">
+                    <h2 class="text-2xl font-bold mb-4">Top Albums</h2>
+                    <ul id="top-albums-list" class="space-y-4"></ul>
+                </div>
+            </main>
+            
+            <footer class="text-center mt-12">
+                 <button id="get-recommendations-button" class="bg-green-500 hover:bg-green-600 text-gray-900 font-bold py-3 px-6 rounded-full text-lg transition duration-300 transform hover:scale-105">
+                    Get Track Recommendations
+                </button>
+            </footer>
         </div>
 
-        <button class="start-journey-btn">
-            Unveil Your Musical Story
-            <div class="arrow-icon"></div>
-        </button>
+        <!-- View 3: Recommendations Page -->
+        <div id="recommendations-view" class="hidden flex-grow flex flex-col">
+             <header class="flex items-center mb-8">
+                <button id="back-to-dashboard-button" class="bg-gray-700 hover:bg-gray-600 py-2 px-4 rounded-lg mr-4">&larr; Back</button>
+                <h1 class="text-3xl font-bold">Your Recommendations</h1>
+            </header>
+            <div id="recommendations-loading" class="flex-grow flex items-center justify-center">
+                <p class="text-xl text-gray-400">Generating your personalized playlist...</p>
+            </div>
+            <ul id="recommendations-list" class="hidden grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+                <!-- Recommendation items will be injected here -->
+            </ul>
+        </div>
     </div>
-</body>
 
+    <script src="script.js"></script>
+</body>
 </html>
+

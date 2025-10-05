@@ -1,102 +1,22 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
-
-:root {
-    --spotify-green: #1DB954;
-    --spotify-black: #191414;
-    --spotify-light-green: #1ED760;
-}
-
-* {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
-}
-
 body {
     font-family: 'Inter', sans-serif;
-    background: radial-gradient(circle at top right, var(--spotify-green) 0%, var(--spotify-black) 80%);
-    color: white;
-    min-height: 100vh;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    overflow: hidden;
+    background-color: #121212;
 }
 
-
-.wrapped-header {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    margin-bottom: 32px;
+/* Simple scrollbar styling */
+::-webkit-scrollbar {
+    width: 8px;
 }
 
-.wrapped-title {
-    font-size: 3rem;
-    font-weight: 700;
-    background: linear-gradient(45deg, var(--spotify-light-green), white);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    margin-bottom: 16px;
+::-webkit-scrollbar-track {
+    background: #1f1f1f;
 }
 
-.wrapped-subtitle {
-    color: rgba(255, 255, 255, 0.7);
-    font-size: 1.1rem;
-    max-width: 400px;
-    margin: 0 auto;
+::-webkit-scrollbar-thumb {
+    background: #4a4a4a;
+    border-radius: 10px;
 }
 
-.insights-preview {
-    background: rgba(255, 255, 255, 0.05);
-    border-radius: 16px;
-    padding: 24px;
-    margin: 32px 0;
-    display: grid;
-    gap: 16px;
-}
-
-.insight-item {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    color: rgba(255, 255, 255, 0.9);
-}
-
-.insight-icon {
-    width: 40px;
-    height: 40px;
-    background: rgba(29, 185, 84, 0.2);
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.start-journey-btn {
-    width: 100%;
-    background: var(--spotify-light-green);
-    color: var(--spotify-black);
-    border: none;
-    padding: 16px;
-    border-radius: 50px;
-    font-size: 1.1rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.3s ease;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 12px;
-}
-
-.start-journey-btn:hover {
-    transform: scale(1.05);
-    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
-}
-
-.arrow-icon {
-    width: 24px;
-    height: 24px;
-    background: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="%23191414" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>');
+::-webkit-scrollbar-thumb:hover {
+    background: #555;
 }
