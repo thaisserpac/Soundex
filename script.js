@@ -1,5 +1,4 @@
-// IMPORTANT: Replace this with your own Client ID from the Spotify Developer Dashboard.
-const CLIENT_ID = "YOUR_SPOTIFY_CLIENT_ID"; 
+const CLIENT_ID = "36232981742840aca3fb864959b3a6f1"; 
 
 // This must match the Redirect URI you set in your Spotify app settings.
 const REDIRECT_URI = window.location.origin + window.location.pathname;
