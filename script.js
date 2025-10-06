@@ -39,27 +39,37 @@ async function generateCodeChallenge(codeVerifier) {
 
 // When the user clicks login
 document.getElementById('login-button').addEventListener('click', async () => {
-    if (!CLIENT_ID || CLIENT_ID === "YOUR_SPOTIFY_CLIENT_ID") {
-        alert("Please replace 'YOUR_SPOTIFY_CLIENT_ID' in the script with your actual Spotify Client ID.");
-        return;
+    try {
+        if (!CLIENT_ID || CLIENT_ID === "YOUR_SPOTIFY_CLIENT_ID") {
+            alert("Please replace 'YOUR_SPOTIFY_CLIENT_ID' in the script with your actual Spotify Client ID.");
+            return;
+        }
+
+        console.log("Login button clicked. Starting PKCE flow...");
+
+        const codeVerifier = generateRandomString(128);
+        const codeChallenge = await generateCodeChallenge(codeVerifier);
+        
+        console.log("Code verifier and challenge generated.");
+
+        // Save the verifier in the browser's session storage
+        window.sessionStorage.setItem('code_verifier', codeVerifier);
+
+        const params = new URLSearchParams();
+        params.append('client_id', CLIENT_ID);
+        params.append('response_type', 'code'); // We ask for a 'code' now, not a 'token'
+        params.append('redirect_uri', REDIRECT_URI);
+        params.append('scope', SCOPES.join(' '));
+        params.append('code_challenge_method', 'S256');
+        params.append('code_challenge', codeChallenge);
+
+        console.log("Redirecting to Spotify authorization page...");
+        // Redirect the user to the Spotify authorization page
+        document.location = `https://accounts.spotify.com/authorize?${params.toString()}`;
+    } catch (error) {
+        console.error("Error in login button click handler:", error);
+        alert(`A critical error occurred while trying to log in. Please check the console for more details. \nError: ${error.message}`);
     }
-
-    const codeVerifier = generateRandomString(128);
-    const codeChallenge = await generateCodeChallenge(codeVerifier);
-
-    // Save the verifier in the browser's session storage
-    window.sessionStorage.setItem('code_verifier', codeVerifier);
-
-    const params = new URLSearchParams();
-    params.append('client_id', CLIENT_ID);
-    params.append('response_type', 'code'); // We ask for a 'code' now, not a 'token'
-    params.append('redirect_uri', REDIRECT_URI);
-    params.append('scope', SCOPES.join(' '));
-    params.append('code_challenge_method', 'S256');
-    params.append('code_challenge', codeChallenge);
-
-    // Redirect the user to the Spotify authorization page
-    document.location = `https://accounts.spotify.com/authorize?${params.toString()}`;
 });
 
 
@@ -102,8 +112,13 @@ async function getAccessToken(code) {
         body: params
     });
 
-    const { access_token } = await result.json();
-    return access_token;
+    const responseJson = await result.json();
+
+    if (!result.ok) {
+        throw new Error(`Error fetching token: ${responseJson.error_description}`);
+    }
+    
+    return responseJson.access_token;
 }
 
 
