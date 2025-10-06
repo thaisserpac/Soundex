@@ -1,3 +1,4 @@
+// IMPORTANT: Replace this with your own Client ID from the Spotify Developer Dashboard.
 const CLIENT_ID = "36232981742840aca3fb864959b3a6f1"; 
 
 // This must match the Redirect URI you set in your Spotify app settings.
@@ -12,30 +13,101 @@ const recommendationsView = document.getElementById('recommendations-view');
 
 let accessToken = null;
 
-// --- Core Authentication Flow ---
+// --- PKCE Flow Helper Functions ---
 
-window.onload = () => {
-    // On page load, check if there's an access token in the URL hash
-    const hash = window.location.hash;
-    if (hash) {
-        const tokenParam = new URLSearchParams(hash.substring(1)).get('access_token');
-        if (tokenParam) {
-            accessToken = tokenParam;
-            // Clean the URL
-            window.history.pushState("", document.title, window.location.pathname + window.location.search);
-            showDashboard();
-        }
+// 1. Generate a random string for the code verifier
+function generateRandomString(length) {
+    let text = '';
+    const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    for (let i = 0; i < length; i++) {
+        text += possible.charAt(Math.floor(Math.random() * possible.length));
     }
-};
+    return text;
+}
 
-document.getElementById('login-button').addEventListener('click', () => {
+// 2. Hash the code verifier to create the code challenge
+async function generateCodeChallenge(codeVerifier) {
+    const data = new TextEncoder().encode(codeVerifier);
+    const digest = await window.crypto.subtle.digest('SHA-256', data);
+    return btoa(String.fromCharCode.apply(null, [...new Uint8Array(digest)]))
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/, '');
+}
+
+// --- Core Authentication Flow (Now with PKCE) ---
+
+// When the user clicks login
+document.getElementById('login-button').addEventListener('click', async () => {
     if (!CLIENT_ID || CLIENT_ID === "YOUR_SPOTIFY_CLIENT_ID") {
         alert("Please replace 'YOUR_SPOTIFY_CLIENT_ID' in the script with your actual Spotify Client ID.");
         return;
     }
-    const authUrl = `https://accounts.spotify.com/authorize?client_id=${CLIENT_ID}&response_type=token&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=${SCOPES.join('%20')}`;
-    window.location = authUrl;
+
+    const codeVerifier = generateRandomString(128);
+    const codeChallenge = await generateCodeChallenge(codeVerifier);
+
+    // Save the verifier in the browser's session storage
+    window.sessionStorage.setItem('code_verifier', codeVerifier);
+
+    const params = new URLSearchParams();
+    params.append('client_id', CLIENT_ID);
+    params.append('response_type', 'code'); // We ask for a 'code' now, not a 'token'
+    params.append('redirect_uri', REDIRECT_URI);
+    params.append('scope', SCOPES.join(' '));
+    params.append('code_challenge_method', 'S256');
+    params.append('code_challenge', codeChallenge);
+
+    // Redirect the user to the Spotify authorization page
+    document.location = `https://accounts.spotify.com/authorize?${params.toString()}`;
 });
+
+
+// On page load, handle the redirect back from Spotify
+window.onload = async () => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('code');
+
+    if (code) {
+        // We have a code, now we need to exchange it for an access token
+        try {
+            accessToken = await getAccessToken(code);
+            // Clean the URL
+            window.history.pushState({}, '', REDIRECT_URI);
+            showDashboard();
+        } catch (error) {
+            console.error("Error getting access token:", error);
+            alert("There was an error during login. Please try again.");
+        }
+    }
+};
+
+// Function to exchange the authorization code for an access token
+async function getAccessToken(code) {
+    const codeVerifier = window.sessionStorage.getItem('code_verifier');
+    if (!codeVerifier) {
+        throw new Error("Code verifier not found in session storage.");
+    }
+
+    const params = new URLSearchParams();
+    params.append('client_id', CLIENT_ID);
+    params.append('grant_type', 'authorization_code');
+    params.append('code', code);
+    params.append('redirect_uri', REDIRECT_URI);
+    params.append('code_verifier', codeVerifier);
+
+    const result = await fetch('https://accounts.spotify.com/api/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: params
+    });
+
+    const { access_token } = await result.json();
+    return access_token;
+}
+
+
+// --- The rest of your application logic (UI, API calls) remains mostly the same ---
 
 // --- UI View Management ---
 
@@ -66,6 +138,7 @@ async function spotifyFetch(endpoint) {
     });
     if (response.status === 401) { // Token expired or invalid
         alert("Your session has expired. Please log in again.");
+        window.sessionStorage.clear();
         window.location = REDIRECT_URI;
         return;
     }
@@ -87,10 +160,9 @@ async function fetchUserProfile() {
 }
 
 async function fetchTopItems(timeRange) {
-    // Use Promise.all to fetch artists and tracks concurrently
     const [artistsData, tracksData] = await Promise.all([
         spotifyFetch(`me/top/artists?time_range=${timeRange}&limit=5`),
-        spotifyFetch(`me/top/tracks?time_range=${timeRange}&limit=50`) // Fetch more tracks to accurately derive albums
+        spotifyFetch(`me/top/tracks?time_range=${timeRange}&limit=50`)
     ]);
 
     if (artistsData) displayTopArtists(artistsData.items);
@@ -101,7 +173,6 @@ async function fetchTopItems(timeRange) {
 }
 
 async function fetchRecommendations() {
-    // Get seeds from top artists and tracks
     const [artistsData, tracksData] = await Promise.all([
         spotifyFetch(`me/top/artists?time_range=medium_term&limit=2`),
         spotifyFetch(`me/top/tracks?time_range=medium_term&limit=3`)
@@ -149,7 +220,6 @@ function displayTopTracks(tracks) {
 }
 
 function displayTopAlbums(tracks) {
-    // This function derives top albums from the list of top tracks.
     const albumCounts = {};
     tracks.forEach(track => {
         const album = track.album;
@@ -202,3 +272,4 @@ document.getElementById('back-to-dashboard-button').addEventListener('click', ()
     recommendationsView.classList.add('hidden');
     dashboardView.classList.remove('hidden');
 });
+
