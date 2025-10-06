@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Soudnex - Your Spotify Analyzer</title>
+    <title>Statify - Your Spotify Analyzer</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -16,7 +16,7 @@
         
         <!-- View 1: Login Page -->
         <div id="login-view" class="flex flex-col items-center justify-center text-center flex-grow">
-            <h1 class="text-5xl md:text-7xl font-black text-green-400 mb-4">Soundex</h1>
+            <h1 class="text-5xl md:text-7xl font-black text-green-400 mb-4">Statify</h1>
             <p class="text-lg md:text-xl text-gray-300 max-w-2xl mb-8">
                 Unlock the story behind your streams. See your most-played artists, tracks, and albums, and discover new music perfectly tailored to your taste.
             </p>
@@ -29,8 +29,7 @@
                 </ol>
                 <p class="text-xs text-gray-500 mt-4">Note: We only request read-only access to your top artists and tracks. We do not store any of your data.</p>
             </div>
-            <button id="login-button" class="bg-green-500 hover:bg-green-600 text-gray-900 font-bold py-4 px-8 rounded-full text-lg transition duration-300 flex items-center space-x-3 transform hover:scale-105">
-                <svg role="img" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.923 17.483c-.202.32-.58.426-.9.223-2.625-1.62-5.922-1.987-9.864-1.09a.834.834 0 01-.952-.82.834.834 0 01.82-.952c4.328-.98 7.99- .55 10.932 1.255a.838.838 0 01.223.901l-.259.483zm1.18-2.81c-.253.398-.716.53-1.114.278-2.92-1.78-7.345-2.308-11.245-1.255a1.042 1.042 0 01-1.162-1.025c.01-1.042 1.025-1.162 1.025-1.162 4.387-.952 9.243-.32 12.55 1.78a1.042 1.042 0 01.278 1.114l-.32 1.25zm.11-3.213C15.22 8.318 8.802 7.99 5.074 9.103a1.25 1.25 0 01-1.38-1.22c-.01-1.25 1.22-1.38 1.22-1.38 4.214-1.255 11.235-.82 15.063 2.025a1.25 1.25 0 01.32 1.637l-1.38 1.49z"></path></svg>
+            <button id="login-button" class="bg-green-500 hover:bg-green-600 text-gray-900 font-bold py-4 px-8 rounded-full text-lg transition duration-300 flex items-center justify-center space-x-3 transform hover:scale-105">
                 <span>Login with Spotify</span>
             </button>
         </div>
@@ -94,4 +93,5 @@
     <script src="script.js"></script>
 </body>
 </html>
+
 
