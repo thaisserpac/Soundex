@@ -180,15 +180,13 @@ async function fetchTopItems(timeRange) {
 async function fetchRecommendations() {
     console.log("Fetching recommendations...");
     try {
-        // 1. Get seeds. We use fewer seeds to increase chances of success.
-        // Only 1 artist and 2 tracks to prevent over-constraining the algorithm.
+        // 1. Get seeds (Artist and Tracks)
         const [artistsData, tracksData] = await Promise.all([
             spotifyFetch(`me/top/artists?time_range=short_term&limit=1`),
             spotifyFetch(`me/top/tracks?time_range=short_term&limit=2`)
         ]);
 
         if (!artistsData || !tracksData) {
-             console.error("Could not fetch seeds.");
              throw new Error("Could not fetch seeds");
         }
 
@@ -197,14 +195,26 @@ async function fetchRecommendations() {
         
         console.log(`Seeds - Artist: ${seedArtists}, Tracks: ${seedTracks}`);
         
-        // 2. Call Recommendations Endpoint
-        // Ensure limit is set and we aren't sending empty seeds
-        if(!seedArtists && !seedTracks) {
-             throw new Error("No top artists or tracks found to base recommendations on.");
+        let recommendationsData = null;
+
+        // 2. Attempt 1: Use both Artist and Track seeds
+        if (seedArtists && seedTracks) {
+             console.log("Attempting recommendation with Artist + Track seeds...");
+             recommendationsData = await spotifyFetch(`recommendations?limit=10&seed_artists=${seedArtists}&seed_tracks=${seedTracks}`);
         }
 
-        const recommendationsData = await spotifyFetch(`recommendations?limit=10&seed_artists=${seedArtists}&seed_tracks=${seedTracks}`);
-        
+        // 3. Attempt 2: Fallback - Use ONLY Artist seed if Attempt 1 failed or returned empty
+        if (!recommendationsData || recommendationsData.tracks.length === 0) {
+             console.log("First attempt empty. Falling back to Artist seed only...");
+             if (seedArtists) {
+                 recommendationsData = await spotifyFetch(`recommendations?limit=10&seed_artists=${seedArtists}`);
+             } else {
+                 // Super Fallback: If no artists, just grab "pop" genre
+                 recommendationsData = await spotifyFetch(`recommendations?limit=10&seed_genres=pop`);
+             }
+        }
+
+        // 4. Display Results
         document.getElementById('recommendations-loading').classList.add('hidden');
         
         if (recommendationsData && recommendationsData.tracks.length > 0) {
@@ -212,9 +222,9 @@ async function fetchRecommendations() {
             document.getElementById('recommendations-list').classList.remove('hidden');
             displayRecommendations(recommendationsData.tracks);
         } else {
-            console.warn("API returned 0 recommendations.");
+            console.warn("API returned 0 recommendations after fallback.");
              document.getElementById('recommendations-list').classList.remove('hidden');
-            document.getElementById('recommendations-list').innerHTML = '<p class="text-white text-center col-span-full">No recommendations found based on your recent listening. Try listening to more varied music!</p>';
+            document.getElementById('recommendations-list').innerHTML = '<p class="text-white text-center col-span-full">No recommendations found. Try listening to more music to build your history!</p>';
         }
     } catch (error) {
         console.error("Error in fetchRecommendations:", error);
