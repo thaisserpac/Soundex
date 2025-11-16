@@ -4,18 +4,19 @@ const CLIENT_ID = "36232981742840aca3fb864959b3a6f1";
 // This must match the Redirect URI you set in your Spotify app settings.
 const REDIRECT_URI = window.location.origin + window.location.pathname;
 
-// Scopes define the permissions we are asking the user for.
-const SCOPES = ["user-top-read"];
+// Scopes: Added 'playlist-modify-public' to allow creating playlists
+const SCOPES = ["user-top-read", "playlist-modify-public"];
 
 const loginView = document.getElementById('login-view');
 const dashboardView = document.getElementById('dashboard-view');
 const recommendationsView = document.getElementById('recommendations-view');
 
 let accessToken = null;
+let currentUserId = null; // Store user ID for playlist creation
+let currentRecommendations = []; // Store recommended tracks to save them later
 
 // --- PKCE Flow Helper Functions ---
 
-// 1. Generate a random string for the code verifier
 function generateRandomString(length) {
     let text = '';
     const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
@@ -25,7 +26,6 @@ function generateRandomString(length) {
     return text;
 }
 
-// 2. Hash the code verifier to create the code challenge
 async function generateCodeChallenge(codeVerifier) {
     const data = new TextEncoder().encode(codeVerifier);
     const digest = await window.crypto.subtle.digest('SHA-256', data);
@@ -35,9 +35,8 @@ async function generateCodeChallenge(codeVerifier) {
         .replace(/=+$/, '');
 }
 
-// --- Core Authentication Flow (Now with PKCE) ---
+// --- Core Authentication Flow ---
 
-// When the user clicks login
 document.getElementById('login-button').addEventListener('click', async () => {
     try {
         if (!CLIENT_ID || CLIENT_ID === "YOUR_SPOTIFY_CLIENT_ID") {
@@ -45,58 +44,46 @@ document.getElementById('login-button').addEventListener('click', async () => {
             return;
         }
 
-        console.log("Login button clicked. Starting PKCE flow...");
-
         const codeVerifier = generateRandomString(128);
         const codeChallenge = await generateCodeChallenge(codeVerifier);
         
-        console.log("Code verifier and challenge generated.");
-
-        // Save the verifier in the browser's session storage
         window.sessionStorage.setItem('code_verifier', codeVerifier);
 
         const params = new URLSearchParams();
         params.append('client_id', CLIENT_ID);
-        params.append('response_type', 'code'); // We ask for a 'code' now, not a 'token'
+        params.append('response_type', 'code');
         params.append('redirect_uri', REDIRECT_URI);
         params.append('scope', SCOPES.join(' '));
         params.append('code_challenge_method', 'S256');
         params.append('code_challenge', codeChallenge);
 
-        console.log("Redirecting to Spotify authorization page...");
-        // Redirect the user to the Spotify authorization page
         document.location = `https://accounts.spotify.com/authorize?${params.toString()}`;
     } catch (error) {
-        console.error("Error in login button click handler:", error);
-        alert(`A critical error occurred while trying to log in. Please check the console for more details. \nError: ${error.message}`);
+        console.error("Error in login:", error);
+        alert(`Login error: ${error.message}`);
     }
 });
 
-
-// On page load, handle the redirect back from Spotify
 window.onload = async () => {
     const params = new URLSearchParams(window.location.search);
     const code = params.get('code');
 
     if (code) {
-        // We have a code, now we need to exchange it for an access token
         try {
             accessToken = await getAccessToken(code);
-            // Clean the URL
             window.history.pushState({}, '', REDIRECT_URI);
             showDashboard();
         } catch (error) {
             console.error("Error getting access token:", error);
-            alert("There was an error during login. Please try again.");
+            alert("Error during login. Please try again.");
         }
     }
 };
 
-// Function to exchange the authorization code for an access token
 async function getAccessToken(code) {
     const codeVerifier = window.sessionStorage.getItem('code_verifier');
     if (!codeVerifier) {
-        throw new Error("Code verifier not found in session storage.");
+        throw new Error("Code verifier not found.");
     }
 
     const params = new URLSearchParams();
@@ -113,16 +100,10 @@ async function getAccessToken(code) {
     });
 
     const responseJson = await result.json();
-
-    if (!result.ok) {
-        throw new Error(`Error fetching token: ${responseJson.error_description}`);
-    }
+    if (!result.ok) throw new Error(responseJson.error_description);
     
     return responseJson.access_token;
 }
-
-
-// --- The rest of your application logic (UI, API calls) remains mostly the same ---
 
 // --- UI View Management ---
 
@@ -132,7 +113,7 @@ function showDashboard() {
     dashboardView.classList.remove('hidden');
     
     fetchUserProfile();
-    fetchTopItems('medium_term'); // Default to medium term
+    fetchTopItems('medium_term');
 }
 
 function showRecommendationsPage() {
@@ -145,14 +126,22 @@ function showRecommendationsPage() {
 
 // --- API Fetching Functions ---
 
-async function spotifyFetch(endpoint) {
-    const response = await fetch(`https://api.spotify.com/v1/${endpoint}`, {
+async function spotifyFetch(endpoint, method = 'GET', body = null) {
+    const options = {
+        method: method,
         headers: {
             'Authorization': `Bearer ${accessToken}`
         }
-    });
-    if (response.status === 401) { // Token expired or invalid
-        alert("Your session has expired. Please log in again.");
+    };
+    if (body) {
+        options.headers['Content-Type'] = 'application/json';
+        options.body = JSON.stringify(body);
+    }
+
+    const response = await fetch(`https://api.spotify.com/v1/${endpoint}`, options);
+    
+    if (response.status === 401) {
+        alert("Session expired. Please log in again.");
         window.sessionStorage.clear();
         window.location = REDIRECT_URI;
         return;
@@ -167,6 +156,7 @@ async function spotifyFetch(endpoint) {
 async function fetchUserProfile() {
     const data = await spotifyFetch('me');
     if (data) {
+        currentUserId = data.id; // Save User ID for playlist creation
         document.getElementById('user-display-name').textContent = data.display_name;
         if (data.images && data.images.length > 0) {
             document.getElementById('user-profile-pic').innerHTML = `<img src="${data.images[0].url}" alt="${data.display_name}" class="w-full h-full object-cover rounded-full">`;
@@ -188,6 +178,7 @@ async function fetchTopItems(timeRange) {
 }
 
 async function fetchRecommendations() {
+    // Get seeds for recommendations
     const [artistsData, tracksData] = await Promise.all([
         spotifyFetch(`me/top/artists?time_range=medium_term&limit=2`),
         spotifyFetch(`me/top/tracks?time_range=medium_term&limit=3`)
@@ -202,8 +193,46 @@ async function fetchRecommendations() {
     
     document.getElementById('recommendations-loading').classList.add('hidden');
     if (recommendationsData) {
-         document.getElementById('recommendations-list').classList.remove('hidden');
+        currentRecommendations = recommendationsData.tracks; // Store for saving
+        document.getElementById('recommendations-list').classList.remove('hidden');
         displayRecommendations(recommendationsData.tracks);
+    }
+}
+
+// --- Playlist Creation Logic ---
+
+async function createPlaylist() {
+    if (!currentUserId || currentRecommendations.length === 0) return;
+
+    const button = document.getElementById('save-playlist-btn');
+    const originalText = button.textContent;
+    button.textContent = "Saving...";
+    button.disabled = true;
+
+    try {
+        // 1. Create the playlist
+        const playlist = await spotifyFetch(`users/${currentUserId}/playlists`, 'POST', {
+            name: `Statify Recommendations - ${new Date().toLocaleDateString()}`,
+            description: "Generated by Statify based on your listening history."
+        });
+
+        if (playlist) {
+            // 2. Add tracks to the playlist
+            const uris = currentRecommendations.map(track => track.uri);
+            await spotifyFetch(`playlists/${playlist.id}/tracks`, 'POST', {
+                uris: uris
+            });
+            
+            alert("Playlist created successfully! Check your Spotify library.");
+            button.textContent = "Saved!";
+            button.classList.remove('bg-green-500', 'hover:bg-green-600');
+            button.classList.add('bg-gray-500', 'cursor-not-allowed');
+        }
+    } catch (error) {
+        console.error("Error creating playlist:", error);
+        alert("Failed to create playlist. Please try again.");
+        button.textContent = originalText;
+        button.disabled = false;
     }
 }
 
@@ -244,11 +273,7 @@ function displayTopAlbums(tracks) {
             albumCounts[album.id] = { ...album, count: 1 };
         }
     });
-
-    const sortedAlbums = Object.values(albumCounts)
-        .sort((a, b) => b.count - a.count)
-        .slice(0, 5);
-
+    const sortedAlbums = Object.values(albumCounts).sort((a, b) => b.count - a.count).slice(0, 5);
     const list = document.getElementById('top-albums-list');
     list.innerHTML = sortedAlbums.map((album, index) => `
          <li class="flex items-center space-x-4 hover:bg-gray-700 p-2 rounded-md transition duration-200">
@@ -264,18 +289,33 @@ function displayTopAlbums(tracks) {
 
 function displayRecommendations(tracks) {
     const list = document.getElementById('recommendations-list');
-    list.innerHTML = tracks.map(track => `
-        <a href="${track.external_urls.spotify}" target="_blank" class="bg-gray-800 p-4 rounded-lg hover:bg-gray-700 transition duration-300 group">
+    
+    // Add the "Save to Spotify" button at the top
+    const saveButtonHtml = `
+        <div class="col-span-full flex justify-center mb-6">
+            <button id="save-playlist-btn" class="bg-green-500 hover:bg-green-600 text-gray-900 font-bold py-3 px-8 rounded-full text-lg transition duration-300 transform hover:scale-105 flex items-center space-x-2">
+                <span>Save these tracks to a Playlist</span>
+            </button>
+        </div>
+    `;
+
+    const tracksHtml = tracks.map(track => `
+        <a href="${track.external_urls.spotify}" target="_blank" class="bg-gray-800 p-4 rounded-lg hover:bg-gray-700 transition duration-300 group block">
             <div class="relative pb-[100%] mb-4">
                 <img src="${track.album.images[1]?.url || 'https://placehold.co/300x300/1f1f1f/ffffff?text=?'}" alt="${track.name}" class="absolute top-0 left-0 w-full h-full object-cover rounded-md">
             </div>
-            <h3 class="font-bold truncate">${track.name}</h3>
+            <h3 class="font-bold truncate text-white">${track.name}</h3>
             <p class="text-sm text-gray-400 truncate group-hover:text-white">${track.artists.map(a => a.name).join(', ')}</p>
         </a>
     `).join('');
+
+    list.innerHTML = saveButtonHtml + tracksHtml;
+
+    // Attach listener to the new button
+    document.getElementById('save-playlist-btn').addEventListener('click', createPlaylist);
 }
 
-// --- Event Listeners for UI interaction ---
+// --- Event Listeners ---
 
 document.getElementById('time-range-select').addEventListener('change', (e) => {
     fetchTopItems(e.target.value);
@@ -287,4 +327,3 @@ document.getElementById('back-to-dashboard-button').addEventListener('click', ()
     recommendationsView.classList.add('hidden');
     dashboardView.classList.remove('hidden');
 });
-
