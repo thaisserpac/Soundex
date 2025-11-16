@@ -1,7 +1,10 @@
 // IMPORTANT: Replace this with your own Client ID from the Spotify Developer Dashboard.
 const CLIENT_ID = "36232981742840aca3fb864959b3a6f1"; 
 
+// This must match the Redirect URI you set in your Spotify app settings.
 const REDIRECT_URI = window.location.origin + window.location.pathname;
+
+// Scopes: Added 'playlist-modify-public' to allow creating playlists
 const SCOPES = ["user-top-read", "playlist-modify-public"];
 
 const loginView = document.getElementById('login-view');
@@ -12,7 +15,7 @@ let accessToken = null;
 let currentUserId = null; 
 let currentRecommendations = []; 
 
-// --- Helper Functions ---
+// --- PKCE Flow Helper Functions ---
 
 function generateRandomString(length) {
     let text = '';
@@ -32,12 +35,18 @@ async function generateCodeChallenge(codeVerifier) {
         .replace(/=+$/, '');
 }
 
-// --- Authentication ---
+// --- Core Authentication Flow ---
 
 document.getElementById('login-button').addEventListener('click', async () => {
     try {
+        if (!CLIENT_ID || CLIENT_ID === "YOUR_SPOTIFY_CLIENT_ID") {
+            alert("Please replace 'YOUR_SPOTIFY_CLIENT_ID' in the script with your actual Spotify Client ID.");
+            return;
+        }
+
         const codeVerifier = generateRandomString(128);
         const codeChallenge = await generateCodeChallenge(codeVerifier);
+        
         window.sessionStorage.setItem('code_verifier', codeVerifier);
 
         const params = new URLSearchParams();
@@ -50,6 +59,7 @@ document.getElementById('login-button').addEventListener('click', async () => {
 
         document.location = `https://accounts.spotify.com/authorize?${params.toString()}`;
     } catch (error) {
+        console.error("Error in login:", error);
         alert(`Login error: ${error.message}`);
     }
 });
@@ -64,7 +74,7 @@ window.onload = async () => {
             window.history.pushState({}, '', REDIRECT_URI);
             showDashboard();
         } catch (error) {
-            console.error("Auth Error:", error);
+            console.error("Error getting access token:", error);
             alert("Error during login. Please try again.");
         }
     }
@@ -72,7 +82,9 @@ window.onload = async () => {
 
 async function getAccessToken(code) {
     const codeVerifier = window.sessionStorage.getItem('code_verifier');
-    if (!codeVerifier) throw new Error("Code verifier not found.");
+    if (!codeVerifier) {
+        throw new Error("Code verifier not found.");
+    }
 
     const params = new URLSearchParams();
     params.append('client_id', CLIENT_ID);
@@ -89,15 +101,17 @@ async function getAccessToken(code) {
 
     const responseJson = await result.json();
     if (!result.ok) throw new Error(responseJson.error_description);
+    
     return responseJson.access_token;
 }
 
-// --- UI Management ---
+// --- UI View Management ---
 
 function showDashboard() {
     loginView.classList.add('hidden');
     recommendationsView.classList.add('hidden');
     dashboardView.classList.remove('hidden');
+    
     fetchUserProfile();
     fetchTopItems('medium_term');
 }
@@ -110,230 +124,228 @@ function showRecommendationsPage() {
     fetchRecommendations();
 }
 
-// --- Bulletproof API Fetcher ---
+// --- API Fetching Functions ---
 
 async function spotifyFetch(endpoint, method = 'GET', body = null) {
-    // 1. CLEANUP: Remove any accidental leading slashes to prevent //v1//error
-    const cleanEndpoint = endpoint.startsWith('/') ? endpoint.slice(1) : endpoint;
-    const url = `https://api.spotify.com/v1/${cleanEndpoint}`;
-
-    console.log(`Fetching: ${url}`); // Debug log
-
     const options = {
         method: method,
-        headers: { 'Authorization': `Bearer ${accessToken}` }
+        headers: {
+            'Authorization': `Bearer ${accessToken}`
+        }
     };
     if (body) {
         options.headers['Content-Type'] = 'application/json';
         options.body = JSON.stringify(body);
     }
 
-    const response = await fetch(url, options);
+    const response = await fetch(`https://api.spotify.com/v1/${endpoint}`, options);
     
     if (response.status === 401) {
         alert("Session expired. Please log in again.");
+        window.sessionStorage.clear();
         window.location = REDIRECT_URI;
-        return null;
+        return;
     }
-    
     if (!response.ok) {
         console.error('API Error:', response.status, response.statusText);
-        // Return detailed error info
-        return { error: true, status: response.status, message: response.statusText, url: url };
+        return null;
     }
     return await response.json();
 }
 
 async function fetchUserProfile() {
     const data = await spotifyFetch('me');
-    if (data && !data.error) {
-        currentUserId = data.id;
+    if (data) {
+        currentUserId = data.id; 
         document.getElementById('user-display-name').textContent = data.display_name;
-        if (data.images?.length > 0) {
-            document.getElementById('user-profile-pic').innerHTML = `<img src="${data.images[0].url}" alt="Profile" class="w-full h-full object-cover rounded-full">`;
+        if (data.images && data.images.length > 0) {
+            document.getElementById('user-profile-pic').innerHTML = `<img src="${data.images[0].url}" alt="${data.display_name}" class="w-full h-full object-cover rounded-full">`;
         }
     }
 }
 
 async function fetchTopItems(timeRange) {
-    const [artists, tracks] = await Promise.all([
+    const [artistsData, tracksData] = await Promise.all([
         spotifyFetch(`me/top/artists?time_range=${timeRange}&limit=5`),
         spotifyFetch(`me/top/tracks?time_range=${timeRange}&limit=50`)
     ]);
 
-    if (artists && !artists.error) displayTopArtists(artists.items);
-    if (tracks && !tracks.error) {
-        displayTopTracks(tracks.items.slice(0, 5));
-        displayTopAlbums(tracks.items);
+    if (artistsData) displayTopArtists(artistsData.items);
+    if (tracksData) {
+        displayTopTracks(tracksData.items.slice(0, 5));
+        displayTopAlbums(tracksData.items);
     }
 }
-
-// --- Robust Recommendation Logic ---
 
 async function fetchRecommendations() {
-    const listEl = document.getElementById('recommendations-list');
-    const loadingEl = document.getElementById('recommendations-loading');
-    
+    console.log("Fetching recommendations...");
     try {
-        // Attempt to get seeds
+        // 1. Get seeds. We use fewer seeds to increase chances of success.
+        // Only 1 artist and 2 tracks to prevent over-constraining the algorithm.
         const [artistsData, tracksData] = await Promise.all([
-            spotifyFetch('me/top/artists?time_range=long_term&limit=1'),
-            spotifyFetch('me/top/tracks?time_range=long_term&limit=1')
+            spotifyFetch(`me/top/artists?time_range=short_term&limit=1`),
+            spotifyFetch(`me/top/tracks?time_range=short_term&limit=2`)
         ]);
 
-        let seedArtists = (artistsData?.items?.[0]?.id) || "";
-        let seedTracks = (tracksData?.items?.[0]?.id) || "";
-        let recData = null;
-
-        // Strategy 1: Try using Artist + Track seeds
-        if (seedArtists || seedTracks) {
-            let query = 'recommendations?limit=10';
-            if (seedArtists) query += `&seed_artists=${seedArtists}`;
-            if (seedTracks) query += `&seed_tracks=${seedTracks}`;
-            
-            recData = await spotifyFetch(query);
+        if (!artistsData || !tracksData) {
+             console.error("Could not fetch seeds.");
+             throw new Error("Could not fetch seeds");
         }
 
-        // Strategy 2: Fallback to "Pop" genre if Strategy 1 failed
-        if (!recData || recData.error || !recData.tracks || recData.tracks.length === 0) {
-            console.log("Fallback to Pop genre");
-            // HARDCODED STRING to ensure no variable corruption
-            recData = await spotifyFetch('recommendations?limit=10&seed_genres=pop');
+        const seedArtists = artistsData.items.map(artist => artist.id).join(',');
+        const seedTracks = tracksData.items.map(track => track.id).join(',');
+        
+        console.log(`Seeds - Artist: ${seedArtists}, Tracks: ${seedTracks}`);
+        
+        // 2. Call Recommendations Endpoint
+        // Ensure limit is set and we aren't sending empty seeds
+        if(!seedArtists && !seedTracks) {
+             throw new Error("No top artists or tracks found to base recommendations on.");
         }
 
-        loadingEl.classList.add('hidden');
-        listEl.classList.remove('hidden');
-
-        if (recData && !recData.error && recData.tracks?.length > 0) {
-            currentRecommendations = recData.tracks;
-            displayRecommendations(recData.tracks);
+        const recommendationsData = await spotifyFetch(`recommendations?limit=10&seed_artists=${seedArtists}&seed_tracks=${seedTracks}`);
+        
+        document.getElementById('recommendations-loading').classList.add('hidden');
+        
+        if (recommendationsData && recommendationsData.tracks.length > 0) {
+            currentRecommendations = recommendationsData.tracks; 
+            document.getElementById('recommendations-list').classList.remove('hidden');
+            displayRecommendations(recommendationsData.tracks);
         } else {
-            // Display Debug Info on Screen
-            const status = recData?.status || "Unknown";
-            const msg = recData?.message || "No data";
-            const url = recData?.url || "Unknown URL";
-            
-            listEl.innerHTML = `
-                <div class="col-span-full text-center text-red-400 bg-gray-800 p-6 rounded-lg">
-                    <h3 class="text-xl font-bold mb-2">Connection Error</h3>
-                    <p>We couldn't fetch recommendations.</p>
-                    <div class="mt-4 text-left bg-black p-4 rounded text-xs font-mono overflow-auto">
-                        <p>Status: ${status}</p>
-                        <p>Message: ${msg}</p>
-                        <p>Endpoint: ${url}</p>
-                    </div>
-                    <p class="mt-4 text-sm text-gray-400">If you see a 404, please check if an ad-blocker is active.</p>
-                </div>`;
+            console.warn("API returned 0 recommendations.");
+             document.getElementById('recommendations-list').classList.remove('hidden');
+            document.getElementById('recommendations-list').innerHTML = '<p class="text-white text-center col-span-full">No recommendations found based on your recent listening. Try listening to more varied music!</p>';
         }
-
-    } catch (e) {
-        console.error(e);
-        loadingEl.classList.add('hidden');
-        listEl.classList.remove('hidden');
-        listEl.innerHTML = `<p class="text-red-500 text-center col-span-full">Critical Error: ${e.message}</p>`;
+    } catch (error) {
+        console.error("Error in fetchRecommendations:", error);
+        document.getElementById('recommendations-loading').classList.add('hidden');
+        document.getElementById('recommendations-list').classList.remove('hidden');
+        document.getElementById('recommendations-list').innerHTML = `<p class="text-red-500 text-center col-span-full">Error generating recommendations: ${error.message}</p>`;
     }
 }
 
-// --- Playlist Creation ---
+// --- Playlist Creation Logic ---
 
 async function createPlaylist() {
     if (!currentUserId || currentRecommendations.length === 0) return;
-    const btn = document.getElementById('save-playlist-btn');
-    const oldText = btn.innerHTML;
-    btn.textContent = "Saving...";
-    btn.disabled = true;
+
+    const button = document.getElementById('save-playlist-btn');
+    const originalText = button.innerHTML; // Save the inner HTML to restore icon if needed
+    button.textContent = "Saving...";
+    button.disabled = true;
 
     try {
         const playlist = await spotifyFetch(`users/${currentUserId}/playlists`, 'POST', {
-            name: `Statify Recommendations ${new Date().toLocaleDateString()}`,
-            description: "Generated by Statify"
+            name: `Statify Recommendations - ${new Date().toLocaleDateString()}`,
+            description: "Generated by Statify based on your listening history."
         });
 
-        if (playlist && !playlist.error) {
-            const uris = currentRecommendations.map(t => t.uri);
-            await spotifyFetch(`playlists/${playlist.id}/tracks`, 'POST', { uris });
-            alert("Playlist saved to your library!");
-            btn.textContent = "Saved!";
-        } else {
-            throw new Error("Playlist creation failed");
+        if (playlist) {
+            const uris = currentRecommendations.map(track => track.uri);
+            await spotifyFetch(`playlists/${playlist.id}/tracks`, 'POST', {
+                uris: uris
+            });
+            
+            alert("Playlist created successfully! Check your Spotify library.");
+            button.textContent = "Saved!";
+            button.classList.remove('bg-green-500', 'hover:bg-green-600');
+            button.classList.add('bg-gray-500', 'cursor-not-allowed');
         }
-    } catch (e) {
-        alert("Error saving playlist");
-        btn.innerHTML = oldText;
-        btn.disabled = false;
+    } catch (error) {
+        console.error("Error creating playlist:", error);
+        alert("Failed to create playlist. Please try again.");
+        button.innerHTML = originalText;
+        button.disabled = false;
     }
 }
 
-// --- UI Rendering ---
+// --- Display Functions ---
 
 function displayTopArtists(artists) {
-    document.getElementById('top-artists-list').innerHTML = artists.map((artist, i) => `
-        <li class="flex items-center space-x-4 bg-gray-800 p-3 rounded-lg">
-            <span class="text-green-400 font-bold w-6">${i + 1}</span>
-            <img src="${artist.images[0]?.url}" class="w-12 h-12 rounded-full object-cover">
-            <span class="font-semibold truncate">${artist.name}</span>
-        </li>`).join('');
+    const list = document.getElementById('top-artists-list');
+    list.innerHTML = artists.map((artist, index) => `
+        <li class="flex items-center space-x-4 hover:bg-gray-700 p-2 rounded-md transition duration-200">
+            <span class="text-gray-400 font-bold w-6 text-center">${index + 1}</span>
+            <img src="${artist.images[2]?.url || 'https://placehold.co/64x64/1f1f1f/ffffff?text=?'}" alt="${artist.name}" class="w-16 h-16 rounded-md object-cover">
+            <span class="font-semibold">${artist.name}</span>
+        </li>
+    `).join('');
 }
 
 function displayTopTracks(tracks) {
-    document.getElementById('top-tracks-list').innerHTML = tracks.map((track, i) => `
-        <li class="flex items-center space-x-4 bg-gray-800 p-3 rounded-lg">
-            <span class="text-green-400 font-bold w-6">${i + 1}</span>
-            <img src="${track.album.images[0]?.url}" class="w-12 h-12 rounded object-cover">
-            <div class="min-w-0">
-                <p class="font-semibold truncate">${track.name}</p>
-                <p class="text-sm text-gray-400 truncate">${track.artists[0].name}</p>
+    const list = document.getElementById('top-tracks-list');
+    list.innerHTML = tracks.map((track, index) => `
+        <li class="flex items-center space-x-4 hover:bg-gray-700 p-2 rounded-md transition duration-200">
+            <span class="text-gray-400 font-bold w-6 text-center">${index + 1}</span>
+            <img src="${track.album.images[2]?.url || 'https://placehold.co/64x64/1f1f1f/ffffff?text=?'}" alt="${track.name}" class="w-16 h-16 rounded-md object-cover">
+            <div>
+                <p class="font-semibold">${track.name}</p>
+                <p class="text-sm text-gray-400">${track.artists.map(a => a.name).join(', ')}</p>
             </div>
-        </li>`).join('');
+        </li>
+    `).join('');
 }
 
 function displayTopAlbums(tracks) {
-    // Simple de-duplication for albums
-    const seen = new Set();
-    const albums = [];
-    for (const t of tracks) {
-        if (!seen.has(t.album.id)) {
-            seen.add(t.album.id);
-            albums.push(t.album);
+    const albumCounts = {};
+    tracks.forEach(track => {
+        const album = track.album;
+        if (albumCounts[album.id]) {
+            albumCounts[album.id].count++;
+        } else {
+            albumCounts[album.id] = { ...album, count: 1 };
         }
-        if (albums.length >= 5) break;
-    }
-
-    document.getElementById('top-albums-list').innerHTML = albums.map((album, i) => `
-        <li class="flex items-center space-x-4 bg-gray-800 p-3 rounded-lg">
-            <span class="text-green-400 font-bold w-6">${i + 1}</span>
-            <img src="${album.images[0]?.url}" class="w-12 h-12 rounded object-cover">
-            <div class="min-w-0">
-                <p class="font-semibold truncate">${album.name}</p>
-                <p class="text-sm text-gray-400 truncate">${album.artists[0].name}</p>
+    });
+    const sortedAlbums = Object.values(albumCounts).sort((a, b) => b.count - a.count).slice(0, 5);
+    const list = document.getElementById('top-albums-list');
+    list.innerHTML = sortedAlbums.map((album, index) => `
+         <li class="flex items-center space-x-4 hover:bg-gray-700 p-2 rounded-md transition duration-200">
+            <span class="text-gray-400 font-bold w-6 text-center">${index + 1}</span>
+            <img src="${album.images[2]?.url || 'https://placehold.co/64x64/1f1f1f/ffffff?text=?'}" alt="${album.name}" class="w-16 h-16 rounded-md object-cover">
+            <div>
+                <p class="font-semibold">${album.name}</p>
+                <p class="text-sm text-gray-400">${album.artists.map(a => a.name).join(', ')}</p>
             </div>
-        </li>`).join('');
+        </li>
+    `).join('');
 }
 
 function displayRecommendations(tracks) {
     const list = document.getElementById('recommendations-list');
-    const btnHtml = `
-        <div class="col-span-full text-center mb-6">
-            <button id="save-playlist-btn" class="bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-8 rounded-full shadow-lg transform transition hover:scale-105">
-                Save to Spotify Library
+    
+    // Add the "Save to Spotify" button at the top
+    const saveButtonHtml = `
+        <div class="col-span-full flex justify-center mb-6">
+            <button id="save-playlist-btn" class="bg-green-500 hover:bg-green-600 text-gray-900 font-bold py-3 px-8 rounded-full text-lg transition duration-300 transform hover:scale-105 flex items-center space-x-2">
+                <span>Save these tracks to a Playlist</span>
             </button>
-        </div>`;
-        
-    const cardsHtml = tracks.map(t => `
-        <a href="${t.external_urls.spotify}" target="_blank" class="bg-gray-800 p-4 rounded-xl hover:bg-gray-700 transition group block">
-            <img src="${t.album.images[0]?.url}" class="w-full aspect-square object-cover rounded-lg mb-4 shadow-lg">
-            <h3 class="font-bold truncate text-white">${t.name}</h3>
-            <p class="text-sm text-gray-400 truncate">${t.artists.map(a => a.name).join(', ')}</p>
-        </a>`).join('');
+        </div>
+    `;
 
-    list.innerHTML = btnHtml + cardsHtml;
+    const tracksHtml = tracks.map(track => `
+        <a href="${track.external_urls.spotify}" target="_blank" class="bg-gray-800 p-4 rounded-lg hover:bg-gray-700 transition duration-300 group block">
+            <div class="relative pb-[100%] mb-4">
+                <img src="${track.album.images[1]?.url || 'https://placehold.co/300x300/1f1f1f/ffffff?text=?'}" alt="${track.name}" class="absolute top-0 left-0 w-full h-full object-cover rounded-md">
+            </div>
+            <h3 class="font-bold truncate text-white">${track.name}</h3>
+            <p class="text-sm text-gray-400 truncate group-hover:text-white">${track.artists.map(a => a.name).join(', ')}</p>
+        </a>
+    `).join('');
+
+    list.innerHTML = saveButtonHtml + tracksHtml;
+
+    // Attach listener to the new button
     document.getElementById('save-playlist-btn').addEventListener('click', createPlaylist);
 }
 
-// --- Events ---
+// --- Event Listeners ---
 
-document.getElementById('time-range-select').addEventListener('change', (e) => fetchTopItems(e.target.value));
+document.getElementById('time-range-select').addEventListener('change', (e) => {
+    fetchTopItems(e.target.value);
+});
+
 document.getElementById('get-recommendations-button').addEventListener('click', showRecommendationsPage);
+
 document.getElementById('back-to-dashboard-button').addEventListener('click', () => {
     recommendationsView.classList.add('hidden');
     dashboardView.classList.remove('hidden');
