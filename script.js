@@ -147,15 +147,16 @@ async function spotifyFetch(endpoint, method = 'GET', body = null) {
         return;
     }
     if (!response.ok) {
+        // Return the error details so we can display them
         console.error('API Error:', response.status, response.statusText);
-        return null;
+        return { error: true, status: response.status, message: response.statusText };
     }
     return await response.json();
 }
 
 async function fetchUserProfile() {
     const data = await spotifyFetch('me');
-    if (data) {
+    if (data && !data.error) {
         currentUserId = data.id; 
         document.getElementById('user-display-name').textContent = data.display_name;
         if (data.images && data.images.length > 0) {
@@ -170,8 +171,8 @@ async function fetchTopItems(timeRange) {
         spotifyFetch(`me/top/tracks?time_range=${timeRange}&limit=50`)
     ]);
 
-    if (artistsData) displayTopArtists(artistsData.items);
-    if (tracksData) {
+    if (artistsData && !artistsData.error) displayTopArtists(artistsData.items);
+    if (tracksData && !tracksData.error) {
         displayTopTracks(tracksData.items.slice(0, 5));
         displayTopAlbums(tracksData.items);
     }
@@ -179,58 +180,67 @@ async function fetchTopItems(timeRange) {
 
 async function fetchRecommendations() {
     console.log("Fetching recommendations...");
+    const listEl = document.getElementById('recommendations-list');
+    
     try {
-        // 1. Get seeds (Artist and Tracks)
+        // 1. Get seeds (Artist and Tracks) - Using LONG_TERM for better data availability
         const [artistsData, tracksData] = await Promise.all([
-            spotifyFetch(`me/top/artists?time_range=short_term&limit=1`),
-            spotifyFetch(`me/top/tracks?time_range=short_term&limit=2`)
+            spotifyFetch(`me/top/artists?time_range=long_term&limit=1`),
+            spotifyFetch(`me/top/tracks?time_range=long_term&limit=1`)
         ]);
 
-        if (!artistsData || !tracksData) {
-             throw new Error("Could not fetch seeds");
+        let seedArtists = "";
+        let seedTracks = "";
+
+        if (artistsData && !artistsData.error && artistsData.items.length > 0) {
+             seedArtists = artistsData.items[0].id;
+        }
+        if (tracksData && !tracksData.error && tracksData.items.length > 0) {
+             seedTracks = tracksData.items[0].id;
         }
 
-        const seedArtists = artistsData.items.map(artist => artist.id).join(',');
-        const seedTracks = tracksData.items.map(track => track.id).join(',');
-        
-        console.log(`Seeds - Artist: ${seedArtists}, Tracks: ${seedTracks}`);
+        console.log(`Seeds - Artist: ${seedArtists}, Track: ${seedTracks}`);
         
         let recommendationsData = null;
 
-        // 2. Attempt 1: Use both Artist and Track seeds
-        if (seedArtists && seedTracks) {
-             console.log("Attempting recommendation with Artist + Track seeds...");
-             recommendationsData = await spotifyFetch(`recommendations?limit=10&seed_artists=${seedArtists}&seed_tracks=${seedTracks}`);
+        // 2. Attempt 1: Use specific seeds
+        if (seedArtists || seedTracks) {
+             // Construct query carefully to avoid empty parameters
+             let query = `recommendations?limit=10`;
+             if (seedArtists) query += `&seed_artists=${seedArtists}`;
+             if (seedTracks) query += `&seed_tracks=${seedTracks}`;
+             
+             console.log("Attempt 1 Query:", query);
+             recommendationsData = await spotifyFetch(query);
         }
 
-        // 3. Attempt 2: Fallback - Use ONLY Artist seed if Attempt 1 failed or returned empty
-        if (!recommendationsData || recommendationsData.tracks.length === 0) {
-             console.log("First attempt empty. Falling back to Artist seed only...");
-             if (seedArtists) {
-                 recommendationsData = await spotifyFetch(`recommendations?limit=10&seed_artists=${seedArtists}`);
-             } else {
-                 // Super Fallback: If no artists, just grab "pop" genre
-                 recommendationsData = await spotifyFetch(`recommendations?limit=10&seed_genres=pop`);
-             }
+        // 3. Attempt 2: Fallback to Pop Genre if Attempt 1 failed/empty
+        if (!recommendationsData || recommendationsData.error || !recommendationsData.tracks || recommendationsData.tracks.length === 0) {
+             console.log("Fallback: Using Pop genre seed");
+             recommendationsData = await spotifyFetch(`recommendations?limit=10&seed_genres=pop`);
         }
 
         // 4. Display Results
         document.getElementById('recommendations-loading').classList.add('hidden');
+        listEl.classList.remove('hidden');
         
-        if (recommendationsData && recommendationsData.tracks.length > 0) {
+        if (recommendationsData && !recommendationsData.error && recommendationsData.tracks.length > 0) {
             currentRecommendations = recommendationsData.tracks; 
-            document.getElementById('recommendations-list').classList.remove('hidden');
             displayRecommendations(recommendationsData.tracks);
         } else {
-            console.warn("API returned 0 recommendations after fallback.");
-             document.getElementById('recommendations-list').classList.remove('hidden');
-            document.getElementById('recommendations-list').innerHTML = '<p class="text-white text-center col-span-full">No recommendations found. Try listening to more music to build your history!</p>';
+            // If we get here, it's a real error. Display it.
+            const errorMsg = recommendationsData && recommendationsData.error 
+                ? `API Error: ${recommendationsData.status} ${recommendationsData.message}` 
+                : "No recommendations found.";
+            
+            listEl.innerHTML = `<p class="text-red-400 text-center col-span-full">${errorMsg}<br>Try refreshing the page.</p>`;
         }
+
     } catch (error) {
-        console.error("Error in fetchRecommendations:", error);
+        console.error("Critical Error:", error);
         document.getElementById('recommendations-loading').classList.add('hidden');
-        document.getElementById('recommendations-list').classList.remove('hidden');
-        document.getElementById('recommendations-list').innerHTML = `<p class="text-red-500 text-center col-span-full">Error generating recommendations: ${error.message}</p>`;
+        listEl.classList.remove('hidden');
+        listEl.innerHTML = `<p class="text-red-500 text-center col-span-full">Critical Error: ${error.message}</p>`;
     }
 }
 
@@ -240,7 +250,7 @@ async function createPlaylist() {
     if (!currentUserId || currentRecommendations.length === 0) return;
 
     const button = document.getElementById('save-playlist-btn');
-    const originalText = button.innerHTML; // Save the inner HTML to restore icon if needed
+    const originalText = button.innerHTML;
     button.textContent = "Saving...";
     button.disabled = true;
 
@@ -250,7 +260,7 @@ async function createPlaylist() {
             description: "Generated by Statify based on your listening history."
         });
 
-        if (playlist) {
+        if (playlist && !playlist.error) {
             const uris = currentRecommendations.map(track => track.uri);
             await spotifyFetch(`playlists/${playlist.id}/tracks`, 'POST', {
                 uris: uris
@@ -260,6 +270,8 @@ async function createPlaylist() {
             button.textContent = "Saved!";
             button.classList.remove('bg-green-500', 'hover:bg-green-600');
             button.classList.add('bg-gray-500', 'cursor-not-allowed');
+        } else {
+             throw new Error("Could not create playlist object.");
         }
     } catch (error) {
         console.error("Error creating playlist:", error);
